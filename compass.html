@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dynamic Image Compass (Traditional Chinese)</title>
+    <style>
+        /* Ensures the compass is centered in the iframe */
+        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; background: transparent; font-family: sans-serif; }
+    </style>
+</head>
+<body>
+
+<feng-compass></feng-compass>
+
+<script>
+// =================================================================
+// STEP 1: REPLACE THESE PLACEHOLDER URLS WITH YOUR ACTUAL IMAGE LINKS
+// =================================================================
+// 1. URL for the large, circular compass face image (NO needle)
+const COMPASS_FACE_URL = '[REPLACE_WITH_YOUR_COMPASS_FACE_IMAGE_URL]';
+
+// 2. URL for the needle image (the arrow shape)
+const NEEDLE_IMAGE_URL = '[REPLACE_WITH_YOUR_NEEDLE_IMAGE_URL]';
+// =================================================================
+
+class FengCompass extends HTMLElement {
+    constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+        this._listening = false;
+    }
+
+    connectedCallback() {
+        this.render();
+        // Get references to the dynamic elements
+        this._needle = this.shadowRoot.querySelector('#needle'); 
+        this._degrees = this.shadowRoot.querySelector('#degrees'); 
+        this._enableBtn = this.shadowRoot.querySelector('#enableBtn');
+        this._hint = this.shadowRoot.querySelector('#hint'); 
+
+        this._enableBtn.addEventListener('click', this.enableCompass.bind(this));
+    }
+
+    disconnectedCallback() {
+        this.stopCompass();
+        if (this._enableBtn) this._enableBtn.removeEventListener('click', this.enableCompass.bind(this));
+    }
+
+    render() {
+        const style = `
+            :host { 
+                display:block; 
+                max-width:340px; 
+                margin:20px auto; 
+            }
+            .compass-wrap { 
+                position: relative;
+                width: 100%;
+                /* Use padding-top to force the wrapper to be a perfect square */
+                padding-top: 100%; 
+            }
+            .face-container {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                /* Optional: Add a subtle shadow for depth */
+                box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
+                border-radius: 50%;
+            }
+            .compass-face-img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                border-radius: 50%;
+                user-select: none; /* Prevent selection */
+            }
+
+            #needle {
+                position: absolute;
+                /* Position the center of the needle image exactly over the center of the compass */
+                top: 50%;
+                left: 50%;
+                
+                /* Adjust the width/height to look correct relative to the face image */
+                width: 60%; 
+                height: 60%;
+                
+                /* Center the image based on its own dimensions */
+                transform: translate(-50%, -50%); 
+                
+                /* CRITICAL: The pivot point must be in the absolute center of the image */
+                transform-origin: 50% 50%; 
+                
+                transition: transform 0.1s ease-out; /* Smooth rotation */
+            }
+
+            /* Degrees and Buttons Styling */
+            .degrees-display { 
+                font-size: 2.2em; 
+                font-weight: 800; 
+                color: #424242; /* Dark color for readability */
+                text-align: center; 
+                margin-top: 20px; 
+            }
+            .btnRow { 
+                text-align:center; 
+                margin-top:12px; 
+            }
+            button { 
+                background: linear-gradient(180deg, #fafafa, #e0e0e0); 
+                border: 1px solid #c0c0c0; 
+                padding: 10px 16px; 
+                border-radius: 22px; 
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
+                cursor:pointer; 
+            }
+            button:disabled { 
+                opacity:0.6; 
+                cursor:not-allowed; 
+            }
+            .hint { 
+                text-align:center; 
+                margin-top:8px; 
+                font-size:13px; 
+                color:#555; 
+            }
+        `;
+
+        const html = `
+            <div class="compass-wrap">
+                <style>${style}</style>
+                <div class="face-container">
+                    <img src="${COMPASS_FACE_URL}" alt="Compass Face" class="compass-face-img">
+                    <img src="${NEEDLE_IMAGE_URL}" id="needle" alt="Compass Needle">
+                </div>
+            </div>
+            
+            <div class="degrees-display" id="degrees">0.0°</div>
+            
+            <div class="btnRow">
+                <button id="enableBtn">啟用羅盤 (Enable Compass)</button>
+            </div>
+            <div class="hint" id="hint">點擊啟用，並允許動作存取 (Safari iOS supported)</div>
+        `;
+        this.shadowRoot.innerHTML = html;
+    }
+
+    // This function rotates the needle and updates the degrees display
+    updateAngle(event) {
+        let angle;
+        if (event.webkitCompassHeading !== undefined) {
+            // iOS uses webkitCompassHeading (0-360, where 0 is North)
+            angle = event.webkitCompassHeading;
+        } else if (event.alpha !== null) {
+            // Android uses alpha (0-360, relative to device)
+            // We adjust it to be compass-like: 360 - alpha
+            angle = 360 - (event.alpha);
+        } else {
+            this.stopCompass();
+            return;
+        }
+        
+        // Apply the CSS rotation transform to the needle image
+        this._needle.style.transform = `translate(-50%, -50%) rotateZ(${angle}deg)`;
+        
+        // Update the degrees display
+        this._degrees.textContent = `${angle.toFixed(1)}°`;
+    }
+
+
+    async enableCompass() {
+        if (this._listening) return;
+
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            // iOS 13+ requires explicit permission
+            try {
+                const permissionState = await DeviceOrientationEvent.requestPermission();
+                if (permissionState === 'granted') {
+                    window.addEventListener('deviceorientation', this.updateAngle.bind(this));
+                    this._listening = true;
+                    this._enableBtn.disabled = true;
+                    this._enableBtn.textContent = '羅盤已啟用 (Compass Active)';
+                    this._hint.textContent = '正在讀取方位...';
+                } else {
+                    this._hint.textContent = '權限遭拒絕。請檢查設備設定。';
+                    this._enableBtn.textContent = '權限遭拒絕';
+                }
+            } catch (error) {
+                this._hint.textContent = '請求權限時發生錯誤。';
+                this._enableBtn.textContent = '發生錯誤';
+            }
+        } else {
+            // Standard Android/Desktop (permission granted by default)
+            window.addEventListener('deviceorientation', this.updateAngle.bind(this));
+            this._listening = true;
+            this._enableBtn.disabled = true;
+            this._enableBtn.textContent = '羅盤已啟用 (Compass Active)';
+            this._hint.textContent = '正在讀取方位...';
+        }
+    }
+
+    stopCompass() {
+        if (this._listening) {
+            window.removeEventListener('deviceorientation', this.updateAngle.bind(this));
+            this._listening = false;
+        }
+        if (this._enableBtn) {
+            this._enableBtn.disabled = false;
+            this._enableBtn.textContent = '啟用羅盤 (Enable Compass)';
+        }
+        if (this._hint) {
+            this._hint.textContent = '點擊啟用，並允許動作存取 (Safari iOS supported)';
+        }
+    }
+}
+
+customElements.define('feng-compass', FengCompass);
+</script>
+
+</body>
+</html>
